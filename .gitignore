@@ -1,0 +1,42 @@
+# === Sensitive API keys ===
+.env
+api_keys.env
+
+# === Python cache ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# === Virtual environments ===
+venv/
+.env/
+env/
+
+# === System files ===
+.DS_Store
+Thumbs.db
+
+# === IDE folders ===
+.vscode/
+.idea/
+
+# === Logs & temp ===
+*.log
+/tmp/
+
+# other env variants
+*.env
+.env.*
+
+# Azure logs / artifacts
+webapp_logs/
+webapp_logs.zip
+*.zip
+
+# local config (only commit an example version)
+current_config.json
+
+# odd local scratch files (from CLI)
+--name
+--resource-group

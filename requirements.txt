@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+weaviate-client
+openai
+python-dotenv
+pypdf
+python-multipart
+gradio
+requests
