@@ -2,6 +2,7 @@ import weaviate
 from weaviate.auth import AuthApiKey
 from weaviate.classes.config import DataType
 from weaviate.classes.data import DataObject
+from weaviate.classes.init import AdditionalConfig, Timeout
 from app.llm_utils import embed_text, expand_query
 
 # CONNECT
@@ -10,7 +11,14 @@ def connect(weaviate_url: str, WEAVIATE_API_KEY: str):
     return weaviate.connect_to_weaviate_cloud(
         cluster_url=weaviate_url,
         auth_credentials=AuthApiKey(WEAVIATE_API_KEY),
-        skip_init_checks=True
+        additional_config=AdditionalConfig(
+            timeout=Timeout(
+                init=30,    
+                query=120,  
+                insert=180 
+            )
+        ),
+        skip_init_checks=True,  # ok temporarily; consider False once stable
     )
 
 # SCHEMA
@@ -65,7 +73,6 @@ def insert_chunks(client, chunks, batch_size=64):
 
 def search_weaviate(client, query: str, k=12):
     pdf_chunks = client.collections.get("PDFDocument")
-    print("VECTOR COUNT:", pdf_chunks.aggregate.over_all().total_count)
 
     expanded_query = expand_query(query)
     query_vec = embed_text(expanded_query)
