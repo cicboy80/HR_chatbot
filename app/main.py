@@ -114,7 +114,8 @@ Answer:
             temperature=0,
         )
 
-        return response.choices[0].message.content.strip()
+        answer = response.choices[0].message.content.strip()
+        return {"answer": answer}
 
     except Exception as e:
         return {"error": str(e), "trace": traceback.format_exc()}
@@ -139,8 +140,10 @@ def ask_question_ui(question):
         return "⚠️ Please enter a question."
 
     r = requests.post(f"{API_URL}/ask_question", data={"query": question})
-    return r.text if r.status_code == 200 else f"❌ {r.text}"
-
+    if r.status_code == 200:
+        data = r.json()
+        return data.get("answer", data.get("error", "Unknown error"))
+    return f"❌ {r.text}"
 
 with gr.Blocks(title="HR Q&A Bot") as gradio_app:
     gr.Markdown("## 🤖 HR Q&A Bot — Upload your HR PDF and ask questions")
