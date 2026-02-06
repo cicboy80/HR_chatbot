@@ -3,19 +3,19 @@ import os, traceback
 import requests
 import gradio as gr
 import atexit
+import re
 from dotenv import load_dotenv
 from pathlib import Path
 
 from app.pdf_utils import extract_text_from_pdf, chunk_text
 from app.llm_utils import rerank_chunks_with_llm, client as openai_client
-from app.weaviate_utils import connect, setup_schema, insert_chunks, search_weaviate
+from app.weaviate_utils import connect, insert_chunks, search_weaviate
 
 load_dotenv()
 
 app = FastAPI(title="HR Q&A Bot")
 
 # ENV + CONNECTION
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 WEAVIATE_URL = os.getenv("WEAVIATE_URL")
 WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY")
@@ -38,12 +38,10 @@ except Exception as e:
     client = None
 
 # UPLOAD DIRECTORY
-
 UPLOAD_DIR = Path("tmp/uploads") if os.getenv("WEBSITE_SITE_NAME") else Path("uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # API ENDPOINTS
-
 @app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile):
     """Upload and index a PDF file in Weaviate"""
@@ -106,7 +104,9 @@ Answer:
                     "content": (
                         "You are a helpful HR assistant. "
                         "Base your answer only on the handbook excerpts provided. "
-                        "If the information is unclear, infer carefully but prefer quoting exact text."
+                        "Do NOT wrap the full answer in quotation marks. "
+                        "Quote only short phrases when necessary. "
+                        "If the information is unclear, say you cannot find it in the excerpts."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -114,14 +114,19 @@ Answer:
             temperature=0,
         )
 
-        answer = response.choices[0].message.content.strip().strip('"')
+        # --- DEBUG: show exact characters in logs (Azure will show this) ---
+        raw = response.choices[0].message.content.strip()
+        print("🔎 RAW LLM OUTPUT repr:", repr(raw))
+
+        # --- Strip straight + curly quotes from the start/end ---
+        answer = re.sub(r'^[\"“”‘’]+|[\"“”‘’]+$', '', raw).strip()
+
         return {"answer": answer}
 
     except Exception as e:
         return {"error": str(e), "trace": traceback.format_exc()}
 
 # ✅ GRADIO UI (LOCAL API)
-
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
 def upload_pdf_ui(pdf_file):
@@ -144,6 +149,7 @@ def ask_question_ui(question):
         data = r.json()
         return data.get("answer", data.get("error", "Unknown error"))
     return f"❌ {r.text}"
+
 
 with gr.Blocks(title="HR Q&A Bot") as gradio_app:
     gr.Markdown("## 🤖 HR Q&A Bot — Upload your HR PDF and ask questions")
@@ -169,7 +175,6 @@ with gr.Blocks(title="HR Q&A Bot") as gradio_app:
 gr.mount_gradio_app(app, gradio_app, path="/")
 
 # HEALTH + CLEANUP
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
