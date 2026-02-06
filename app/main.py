@@ -114,7 +114,7 @@ Answer:
             temperature=0,
         )
 
-        answer = response.choices[0].message.content.strip()
+        answer = response.choices[0].message.content.strip().strip('"')
         return {"answer": answer}
 
     except Exception as e:
