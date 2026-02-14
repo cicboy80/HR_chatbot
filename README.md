@@ -1,7 +1,6 @@
 # HR Q&A Bot (FastAPI + Azure Deployment)
 
 Production-oriented Retrieval-Augmented Generation (RAG) service for querying HR and policy documents. The system ingests PDFs, indexes them into a vector database, and serves context-grounded answers via a FastAPI API deployed on Azure.
-__
 
 ## Features
 
