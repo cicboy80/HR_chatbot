@@ -1,28 +1,30 @@
-# 🤖HR Q&A Bot (FastAPI + Azure Deployment)
+# HR Q&A Bot (FastAPI + Azure Deployment)
 
-This project converts the original Hugging Face **Gradio PDF Q&A Bot** into a **production-ready FastAPI API service** with Weaviate vector storage and OpenAI models. It allows users to upload a PDF, automatically index its contents, and query it using natural language.
-
+Production-oriented Retrieval-Augmented Generation (RAG) service for querying HR and policy documents. The system ingests PDFs, indexes them into a vector database, and serves context-grounded answers via a FastAPI API deployed on Azure.
 __
 
-## 🚀 Features
+## Features
 
--Extracts and chunks PDF text
--Generates embeddings via OpenAI **'text-embedding-3-large'** model
--Stores vectors in **Weaviate cloud**
--Expands queries and re-ranks retrieved passages with **'gpt-4.1-mini'**
--Returns precise, context-grounded answers
--Containerized via **Docker** for deployment to **Azure**
-
+- PDF text extraction and semantic chunking
+- Embedding generation using **OpenAI `text-embedding-3-large`**
+- Vector storage and retrieval via **Weaviate Cloud**
+- Query expansion and passage re-ranking using **GPT-4.1-mini**
+- Context-grounded answer generation with source-aware prompts
+- Containerised deployment using **Docker**
+- Cloud deployment on **Azure Container Apps**
+  
 __
 
-## 🧩 Architecture
+## Architecture
+
+The system follows a standard RAG pipeline exposed via a FastAPI service:
 
 FastAPI(API layer)
 │
 ├── /upload_pdf → extract → chunk → embed → index in Weaviate
 └── /ask_question → retrieve → rerank → answer via GPT
 
-### 📘Modules:
+### Modules:
 | File | Description |
 |------|--------------|
 | `pdf_utils.py` | Handles PDF extraction and text chunking |
@@ -32,25 +34,28 @@ FastAPI(API layer)
 
 __
 
-## ⚙️ Setup (Local Deployment)
+## Setup (Local Deployment)
 
-### 1️⃣ Clone the Repository
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/cicboy/hr-qa-bot.git
 cd HR_chatbot
 ```
 
-### 2️⃣ Create an Environment File
+### 2.Create an Environment File
+
+Create a `.env` file (do not commit):
+
 OPENAI_API_KEY=sk-your-openai-key
 WEAVIATE_URL=https://your-cluster.weaviate.network
 WEAVIATE_API_KEY=your-weaviate-api-key
 
-### 3️⃣ Install Dependencies
+### 3. Install Dependencies
 ```bash
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
 
-### 4️⃣ Run Locally
+### 4. Run Locally
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -58,28 +63,30 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 Access the interactive API docs at:
 http://localhost:8000/docs
 
-## 🐳Docker Deployment
+## Docker Deployment
 
-### 1️⃣Build the image
+### 1. Build the image
 ```bash
 docker build -t hr-qa-bot
 ```
 
-### 2️⃣Run the Container
+### 2. Run the Container
 ```bash
 docker run -p 8000:8000 --env-file api_keys.env hr-qa-bot
 ```
 
-### 3️⃣Test
+### 3. Test
 Open: http://localhost:8000/docs
 
-## ☁️Azure Deployment 
+## Azure Deployment 
 
-### 1️⃣Build and Push to Azure Container Registry
+The service is designed to run as a stateless container on Azure Container Apps, with secrets injected via environment variables.
+
+### 1. Build and Push to Azure Container Registry
 ```bash
 az acr build --registry <your_registry> --image hr-qa-bot:v1 .
 ```
-### 2️⃣Deploy to Azure Container Apps
+### 2. Deploy to Azure Container Apps
 ```bash
 
 az containerapp create \
@@ -91,7 +98,7 @@ az containerapp create \
 Once deployed, your FastAPI endpoints will be live at:
 https://hr-qa-bot.<region>.azurecontainerapps.io
 
-## 🔍Example Flow
+## Example Flow
 
 1. Upload your staff handbook via /upload_pdf
 
@@ -99,22 +106,16 @@ https://hr-qa-bot.<region>.azurecontainerapps.io
 
 3. The API:
 
--Expands the question using GPT
--Retrieves and re-ranks PDF chunks from Weaviate
--Returns an HR-accurate 
+- Expands the question using GPT
+- Retrieves and re-ranks PDF chunks from Weaviate
+- Returns an HR-accurate, context-grounded response derived exclusively from the uploaded document 
 
-### 🧠 Next Steps (Scaling & Monitoring)
+### Next Steps (Scaling & Monitoring)
 
--Add LangSmith or OpenTelemetry for trace logging
--Integrate JWT authentication for secure endpoints
--Implement batch PDF ingestion and async processing
--Connect to Azure Blob Storage for file persistence
+- Add structured tracing and observability (e.g. OpenTelemetry / LangSmith)
+- Integrate JWT authentication for secure endpoints
+- Implement batch PDF ingestion and async processing
+- Connect to Azure Blob Storage for file persistence
 
-## ✍️Author
-
-Clyde Cossey
-AI Engineer | Machine Learning Developer | RAG & Agent Systems Builder
-📧cosseyclyde@gmail.com
-
-## 🪪 License
+## License
 MIT License - feel free to use, modify, and build upon this project
