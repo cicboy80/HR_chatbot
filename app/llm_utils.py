@@ -1,21 +1,44 @@
 # Import relevant libraries and modules
 from openai import OpenAI
 import re
+from typing import List, Tuple
 
 client = OpenAI()
 
-# reate embeddings and Store in Vector DB
+EMBED_MODEL = "text-embedding-3-small"
+QUERY_EXPAND_MODEL = "gpt-4.1-mini"
+RERANK_MODEL = "gpt-4o-mini"
+
+
+# --- Embeddings ---
+
 def embed_text(text: str) -> list[float]:
-    """Create OpenAI embedding for ONE chunk"""
+    """Create OpenAI embedding for ONE chunk."""
     response = client.embeddings.create(
-        model="text-embedding-3-small",
+        model=EMBED_MODEL,
         input=text
     )
     return response.data[0].embedding
 
-# Querying
-def expand_query(query:str)->str:
-    """Use GPT to expand a short query into a detailed query."""
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """
+    Create OpenAI embeddings for MANY chunks in a single request (faster + more reliable).
+    Returns a list of vectors aligned with `texts`.
+    """
+    if not texts:
+        return []
+    response = client.embeddings.create(
+        model=EMBED_MODEL,
+        input=texts
+    )
+    return [d.embedding for d in response.data]
+
+
+# --- Query expansion ---
+
+def expand_query(query: str) -> str:
+    """Use GPT to expand a short query into a more detailed search query."""
     try:
         prompt = f"""Expand the following short questions into a more detailed search query
 that includes synonyms and related HR terms, but also restate the keywords clearly.
@@ -33,22 +56,28 @@ Q: {query}
 Expanded:
 """
         response = client.chat.completions.create(
-            model = "gpt-4.1-mini",
-            messages = [{"role": "user", "content": prompt}],
+            model=QUERY_EXPAND_MODEL,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         print("⚠️ Query expansion failed:", e)
         return query
-    
-def rerank_chunks_with_llm(query:str, chunks:list[str]) -> list[str]:
+
+
+# --- Reranking ---
+
+def rerank_chunks_with_llm(query: str, chunks: List[Tuple[str, float]]) -> List[str]:
     """
     Rerank retrieved chunks using GPT reasoning.
-    Returns a list of chunks ordered in descending order
+    `chunks` is a list of (text, score/distance).
+    Returns a list of text chunks ordered by relevance.
     """
+    if not chunks:
+        return []
 
-    #Build a short reranking prompt
+    # Keep prompt small & consistent
     chunk_list_parts = []
     for i, (text, _) in enumerate(chunks):
         clean_text = text[:400].strip().replace("\n", " ")
@@ -56,39 +85,40 @@ def rerank_chunks_with_llm(query:str, chunks:list[str]) -> list[str]:
     chunk_list = "\n\n".join(chunk_list_parts)
 
     rerank_prompt = f"""
-You are a precise HR assistant that ranks excerpts 
-from a staff handbook by how relevant they are to the user's question.
-You must rank excerpts that directly answer the user's question higher than those that merely discuss related topics.
+You are a precise HR assistant that ranks excerpts from a staff handbook
+by how relevant they are to the user's question.
 
 Question: {query}
 
 Excerpts:
 {chunk_list}
 
-Return only the list of excerpt numbers, separated by commas, in descending order of relevance. Example: 3, 1, 2
-"""
+Return ONLY the list of excerpt numbers, separated by commas, in descending order of relevance.
+Example: 3, 1, 2
+""".strip()
 
-    #Run LLM model
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are a factual and consistent reranker."},
-            {"role": "user", "content": rerank_prompt}
-        ],
-        temperature = 0
-    )
-    
-    text_output = response.choices[0].message.content.strip()
-    print(f"🔎 Reranker raw output: {text_output}")  # optional
+    try:
+        response = client.chat.completions.create(
+            model=RERANK_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a factual and consistent reranker."},
+                {"role": "user", "content": rerank_prompt}
+            ],
+            temperature=0
+        )
+        text_output = response.choices[0].message.content.strip()
+        print(f"🔎 Reranker raw output: {text_output}")
 
-    # extract numbers safely
-    order = [int(x) for x in re.findall(r'\d+', text_output )]
-    order = [i for i in order if 1 <= i <= len(chunks)] #ensure valid range
+        # Extract numbers safely
+        order = [int(x) for x in re.findall(r"\d+", text_output)]
+        order = [i for i in order if 1 <= i <= len(chunks)]
 
-    # fallback: if model fails to output indices, return original order
-    if not order:
-        order = list(range(1, len(chunks) + 1))
-    
-    # Return reordered text chunks
-    ordered_chunks = [chunks[i-1][0] for i in order]
-    return ordered_chunks
+        if not order:
+            order = list(range(1, len(chunks) + 1))
+
+        return [chunks[i - 1][0] for i in order]
+
+    except Exception as e:
+        print("⚠️ Rerank failed:", e)
+        # Fallback: return original order
+        return [t for (t, _) in chunks]

@@ -39,4 +39,4 @@ current_config.json
 
 # odd local scratch files (from CLI)
 --name
---resource-group
+--resource-groupuploads/

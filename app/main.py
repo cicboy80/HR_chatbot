@@ -1,4 +1,7 @@
-from fastapi import FastAPI, UploadFile, Form
+print("🔥 MAIN.PY VERSION: 2026-02-06 17:25 (expect repr log)")
+
+from fastapi import FastAPI, UploadFile, Form, HTTPException
+from fastapi.responses import RedirectResponse
 import os, traceback
 import requests
 import gradio as gr
@@ -7,11 +10,12 @@ import re
 from dotenv import load_dotenv
 from pathlib import Path
 
+BASE_DIR = Path(__file__).resolve().parent.parent  # goes from app/ -> project root
+load_dotenv(BASE_DIR / "api_keys.env")
+
 from app.pdf_utils import extract_text_from_pdf, chunk_text
 from app.llm_utils import rerank_chunks_with_llm, client as openai_client
-from app.weaviate_utils import connect, insert_chunks, search_weaviate
-
-load_dotenv()
+from app.weaviate_utils import connect, insert_chunks, ensure_schema, search_weaviate
 
 app = FastAPI(title="HR Q&A Bot")
 
@@ -33,12 +37,13 @@ if not WEAVIATE_API_KEY:
 try:
     client = connect(WEAVIATE_URL, WEAVIATE_API_KEY)
     print("✅ Connected to Weaviate")
+    ensure_schema(client)   # create collection
 except Exception as e:
     print(f"❌ Failed to connect to Weaviate: {e}")
     client = None
 
 # UPLOAD DIRECTORY
-UPLOAD_DIR = Path("tmp/uploads") if os.getenv("WEBSITE_SITE_NAME") else Path("uploads")
+UPLOAD_DIR = Path("/home/uploads") if os.getenv("WEBSITE_SITE_NAME") else Path("uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # API ENDPOINTS
@@ -47,44 +52,60 @@ async def upload_pdf(file: UploadFile):
     """Upload and index a PDF file in Weaviate"""
     try:
         if not client:
-            return {"status": "error", "message": "Weaviate is not connected"}
+            raise HTTPException(status_code=503, detail="Weaviate is not connected")
 
         if file is None:
-            return {"status": "error", "message": "No file uploaded"}
+            raise HTTPException(status_code=400, detail="No file uploaded")
 
-        save_path = UPLOAD_DIR / file.filename
+        safe_name = Path(file.filename).name
+        save_path = UPLOAD_DIR / safe_name
 
         with open(save_path, "wb") as f:
             f.write(await file.read())
 
-        text = extract_text_from_pdf(save_path)
+        try:
+            text = extract_text_from_pdf(save_path)
+        except ValueError as err:
+            # pdf_utils uses ValueError for "no extractable text"
+            raise HTTPException(status_code=400, detail=str(err))
+
+        if not text or not text.strip():
+            raise HTTPException(status_code=400, detail="No extractable text found in this PDF.")
+        
         chunks = chunk_text(text)
+        if not chunks:
+            raise HTTPException(status_code=400, detail="PDF produced 0 chunks after processing.")
 
         # NO MORE SCHEMA WIPE PER UPLOAD
         insert_chunks(client, chunks)
 
         return {
             "status": "success",
-            "message": f"✅ PDF '{file.filename}' processed successfully.",
+            "message": f"✅ PDF '{safe_name}' processed successfully.",
             "chunks": len(chunks),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         print("❌ Upload error:", e)
-        return {"status": "error", "message": str(e), "trace": traceback.format_exc()}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/ask_question")
 async def ask_question(query: str = Form(...)):
+    print("🔥 HIT /ask_question endpoint")
     """Answer a user question using retrieved PDF context."""
     try:
         if not client:
-            return {"error": "Weaviate is not connected"}
+            raise HTTPException(status_code=503, detail="Weaviate is not connected")
 
         retrieved = search_weaviate(client, query, k=12)
+        if not retrieved:
+            return {"answer": "I couldn't find anything relevant in the uploaded handbook. Try uploading the PDF again or rephrasing your question."}
         reranked = rerank_chunks_with_llm(query, retrieved)
 
-        context = "\n\n---\n\n".join(str(x) for x in reranked[:4])
+        context = "\n\n---\n\n".join(reranked[:4])
 
         prompt = f"""
 You are an HR assistant answering questions from the staff handbook.
@@ -137,8 +158,13 @@ def upload_pdf_ui(pdf_file):
         files = {"file": f}
         r = requests.post(f"{API_URL}/upload_pdf", files=files)
 
-    return "✅ PDF uploaded." if r.status_code == 200 else f"❌ {r.text}"
-
+    if r.status_code != 200:
+        return f"❌ {r.text}"
+    
+    data = r.json()
+    if data.get("status") == "success":
+        return data.get("message", "✅ PDF processed.")
+    return f"❌ {data.get('message', 'Upload failed')}"
 
 def ask_question_ui(question):
     if not question.strip():
@@ -171,8 +197,20 @@ with gr.Blocks(title="HR Q&A Bot") as gradio_app:
             outputs=answer_output,
         )
 
+@app.get("/gradio_api/config")
+def gradio_config_alias():
+    return RedirectResponse(url="/gradio_api/info", status_code=307)
+
+@app.get("/gradio_api/api")
+def gradio_api_alias():
+    return RedirectResponse(url="/gradio_api/info", status_code=307)
+
+@app.get("/")
+def root():
+    return RedirectResponse(url="/ui/")
+
 # Mount Gradio into FastAPI
-gr.mount_gradio_app(app, gradio_app, path="/")
+gr.mount_gradio_app(app, gradio_app, path="/ui")
 
 # HEALTH + CLEANUP
 @app.get("/health")
