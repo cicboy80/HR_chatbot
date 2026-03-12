@@ -81,7 +81,7 @@ def rerank_chunks_with_llm(query: str, chunks: List[Dict[str, Any]]) -> List[Dic
     # Keep prompt small & consistent
     chunk_list_parts = []
     for i, chunk in enumerate(chunks):
-        clean_text = chunk.get["text", ""][:400].strip().replace("\n", " ")
+        clean_text = chunk.get("text", "")[:400].strip().replace("\n", " ")
         chunk_index = chunk.get("chunk_index")
         distance = chunk.get("distance")
         chunk_list_parts.append(
