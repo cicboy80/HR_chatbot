@@ -1,7 +1,7 @@
 # Import relevant libraries and modules
 from openai import OpenAI
 import re
-from typing import List, Tuple
+from typing import List, Dict, Any
 
 client = OpenAI()
 
@@ -68,20 +68,25 @@ Expanded:
 
 # --- Reranking ---
 
-def rerank_chunks_with_llm(query: str, chunks: List[Tuple[str, float]]) -> List[str]:
+def rerank_chunks_with_llm(query: str, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Rerank retrieved chunks using GPT reasoning.
-    `chunks` is a list of (text, score/distance).
-    Returns a list of text chunks ordered by relevance.
+    `chunks` is a list of dicts:
+    [{"text": "...", "chunk_index": 1, "distance": 0.12}, ...]
+    Returns the same dicts ordered by relevance.
     """
     if not chunks:
         return []
 
     # Keep prompt small & consistent
     chunk_list_parts = []
-    for i, (text, _) in enumerate(chunks):
-        clean_text = text[:400].strip().replace("\n", " ")
-        chunk_list_parts.append(f"[{i+1}] {clean_text}...")
+    for i, chunk in enumerate(chunks):
+        clean_text = chunk.get["text", ""][:400].strip().replace("\n", " ")
+        chunk_index = chunk.get("chunk_index")
+        distance = chunk.get("distance")
+        chunk_list_parts.append(
+            f"[{i+1}] (chunk={chunk_index}, distance={distance}) {clean_text}..."
+        )
     chunk_list = "\n\n".join(chunk_list_parts)
 
     rerank_prompt = f"""
@@ -114,11 +119,15 @@ Example: 3, 1, 2
         order = [i for i in order if 1 <= i <= len(chunks)]
 
         if not order:
-            order = list(range(1, len(chunks) + 1))
+            return chunks
 
-        return [chunks[i - 1][0] for i in order]
+        reranked = [chunks[i-1] for i in order]
+        used = set(order)
+        remaining = [chunks[i] for i in range(len(chunks)) if (i + 1) not in used]
+
+        return reranked + remaining
 
     except Exception as e:
         print("⚠️ Rerank failed:", e)
         # Fallback: return original order
-        return [t for (t, _) in chunks]
+        return chunks

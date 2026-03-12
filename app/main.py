@@ -1,4 +1,3 @@
-print("🔥 MAIN.PY VERSION: 2026-02-06 17:25 (expect repr log)")
 
 from fastapi import FastAPI, UploadFile, Form, HTTPException
 from fastapi.responses import RedirectResponse
@@ -102,10 +101,15 @@ async def ask_question(query: str = Form(...)):
 
         retrieved = search_weaviate(client, query, k=12)
         if not retrieved:
-            return {"answer": "I couldn't find anything relevant in the uploaded handbook. Try uploading the PDF again or rephrasing your question."}
+            return {
+                "answer": "I couldn't find anything relevant in the uploaded handbook. Try uploading the PDF again or rephrasing your question.",
+                "retrieved_docs": [],
+                "reranked_docs": []
+            }
         reranked = rerank_chunks_with_llm(query, retrieved)
+        top_docs = reranked[:4]
 
-        context = "\n\n---\n\n".join(reranked[:4])
+        context = "\n\n---\n\n".join(doc["text"] for doc in top_docs)
 
         prompt = f"""
 You are an HR assistant answering questions from the staff handbook.
@@ -124,10 +128,11 @@ Answer:
                     "role": "system",
                     "content": (
                         "You are a helpful HR assistant. "
-                        "Base your answer only on the handbook excerpts provided. "
+                        "Answer only from the provided excerpts. "
+                        "If the excerpts do not contain the answer, say that you cannot find it in the provided handbook content. "
+                        "Do NOT invent or infer policy details that are not present. "
                         "Do NOT wrap the full answer in quotation marks. "
-                        "Quote only short phrases when necessary. "
-                        "If the information is unclear, say you cannot find it in the excerpts."
+                        "Quote only short phrases when necessary."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -142,7 +147,11 @@ Answer:
         # --- Strip straight + curly quotes from the start/end ---
         answer = re.sub(r'^[\"“”‘’]+|[\"“”‘’]+$', '', raw).strip()
 
-        return {"answer": answer}
+        return {
+            "answer": answer,
+            "retrieved_docs": retrieved,
+            "reranked_docs": top_docs,
+        }
 
     except Exception as e:
         return {"error": str(e), "trace": traceback.format_exc()}
@@ -168,13 +177,30 @@ def upload_pdf_ui(pdf_file):
 
 def ask_question_ui(question):
     if not question.strip():
-        return "⚠️ Please enter a question."
+        return "⚠️ Please enter a question.", "", ""
 
     r = requests.post(f"{API_URL}/ask_question", data={"query": question})
-    if r.status_code == 200:
-        data = r.json()
-        return data.get("answer", data.get("error", "Unknown error"))
-    return f"❌ {r.text}"
+
+    if r.status_code != 200:
+        return f"❌ {r.text}", "", ""
+
+    data = r.json()
+
+    answer = data.get("answer", data.get("error", "Unknown error"))
+    retrieved_docs = data.get("retrieved_docs", [])
+    reranked_docs = data.get("reranked_docs", [])
+
+    retrieved_text = "\n\n---\n\n".join(
+        f"Chunk: {doc.get('chunk_index')} | Distance: {doc.get('distance')}\n{doc.get('text')}"
+        for doc in retrieved_docs
+    ) if retrieved_docs else "No retrieved docs."
+
+    reranked_text = "\n\n---\n\n".join(
+        f"Chunk: {doc.get('chunk_index')} | Distance: {doc.get('distance')}\n{doc.get('text')}"
+        for doc in reranked_docs
+    ) if reranked_docs else "No reranked docs."
+
+    return answer, retrieved_text, reranked_text
 
 
 with gr.Blocks(title="HR Q&A Bot") as gradio_app:
@@ -189,12 +215,18 @@ with gr.Blocks(title="HR Q&A Bot") as gradio_app:
     with gr.Tab("💬 Ask a Question"):
         question_input = gr.Textbox(label="Ask a question about your uploaded document")
         submit_btn = gr.Button("Get Answer")
+
         answer_output = gr.Textbox(label="Answer", lines=10, interactive=False)
+        
+        with gr.Accordion("Retrieved Docs", open=False):
+            retrieved_output = gr.Textbox(label="Retrieved Docs", lines=14, interactive=False)
+        with gr.Accordion("Reranked Docs Used", open=False):
+            reranked_output = gr.Textbox(label="Reranked Docs Used", lines=14, interactive=False)
 
         submit_btn.click(
             ask_question_ui,
             inputs=question_input,
-            outputs=answer_output,
+            outputs=[answer_output, retrieved_output, reranked_output],
         )
 
 @app.get("/gradio_api/config")

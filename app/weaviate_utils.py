@@ -35,7 +35,6 @@ def ensure_schema(client):
         print(f"ℹ️ Weaviate collection '{COLLECTION}' exists")
         return
 
-    # Sanity check embedding dimensions (not enforced in schema)
     dims = len(embed_text("dimension check"))
     print(f"🧭 Embedding dims (sanity check only): {dims}")
 
@@ -48,7 +47,7 @@ def ensure_schema(client):
         ),
         properties=[
             Property(name="text", data_type=DataType.TEXT),
-            Property(name="page", data_type=DataType.INT),
+            Property(name="chunk_index", data_type=DataType.INT),
         ],
     )
 
@@ -70,7 +69,6 @@ def insert_chunks(
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
 
-        # 1) Batch embeddings
         try:
             vectors = embed_texts(batch)
         except Exception as e:
@@ -85,7 +83,6 @@ def insert_chunks(
                 )
             )
 
-        # 2) Insert with retries
         for attempt in range(1, max_retries + 1):
             try:
                 result = col.data.insert_many(objects)
@@ -120,11 +117,18 @@ def search_weaviate(client, query: str, k: int = 12):
         vector=query_vec,
         alpha=0.3,
         limit=k,
-        return_properties=["text", "page"],
-        return_metadata=MetadataQuery(distance=True)
+        return_properties=["text", "chunk_index"],
+        return_metadata=MetadataQuery(distance=True),
     )
 
     if not res.objects:
         return []
 
-    return [(o.properties["text"], o.metadata.distance) for o in res.objects]
+    return [
+        {
+            "text": o.properties["text"],
+            "chunk_index": o.properties.get("chunk_index"),
+            "distance": o.metadata.distance if o.metadata else None,
+        }
+        for o in res.objects
+    ]
