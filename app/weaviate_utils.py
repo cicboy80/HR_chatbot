@@ -118,7 +118,7 @@ def search_weaviate(client, query: str, k: int = 12):
         alpha=0.3,
         limit=k,
         return_properties=["text", "chunk_index"],
-        return_metadata=MetadataQuery(distance=True),
+        return_metadata=MetadataQuery(score=True),
     )
 
     if not res.objects:
@@ -128,7 +128,7 @@ def search_weaviate(client, query: str, k: int = 12):
         {
             "text": o.properties["text"],
             "chunk_index": o.properties.get("chunk_index"),
-            "distance": o.metadata.distance if o.metadata else None,
+            "score": o.metadata.score if o.metadata else None,
         }
         for o in res.objects
     ]

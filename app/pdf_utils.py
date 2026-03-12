@@ -1,5 +1,28 @@
 import os
+import re
 from pypdf import PdfReader
+
+
+def clean_extracted_text(text: str) -> str:
+    """Clean common PDF extraction artifacts."""
+    if not text:
+        return ""
+
+    # Join words broken across line breaks with hyphens: "exam-\nple" -> "example"
+    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+
+    # Replace line breaks/tabs with spaces
+    text = re.sub(r"[\r\n\t]+", " ", text)
+
+    # Add a space between lowercase-uppercase joins: "informtheMiddle" won't be fixed,
+    # but "schoolOffice" -> "school Office"
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)
+
+    # Collapse repeated whitespace
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
 
 def extract_text_from_pdf(pdf_path: str) -> str:
     """Extract text from all pages in a PDF."""
@@ -14,8 +37,10 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     text_chunks = []
     for i, page in enumerate(reader.pages):
         page_text = page.extract_text()
-        if page_text:  # ✅ Prevent NoneType crashes
-            text_chunks.append(page_text)
+        if page_text:
+            cleaned = clean_extracted_text(page_text)
+            if cleaned:
+                text_chunks.append(cleaned)
 
     if not text_chunks:
         raise ValueError("PDF contains no extractable text (possibly scanned image)")

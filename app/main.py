@@ -191,12 +191,12 @@ def ask_question_ui(question):
     reranked_docs = data.get("reranked_docs", [])
 
     retrieved_text = "\n\n---\n\n".join(
-        f"Chunk: {doc.get('chunk_index')} | Distance: {doc.get('distance')}\n{doc.get('text')}"
+        f"Chunk: {int(doc.get('chunk_index', 0))} | Score: {doc.get('score')}\n{doc.get('text')}"
         for doc in retrieved_docs
     ) if retrieved_docs else "No retrieved docs."
 
     reranked_text = "\n\n---\n\n".join(
-        f"Chunk: {doc.get('chunk_index')} | Distance: {doc.get('distance')}\n{doc.get('text')}"
+        f"Chunk: {int(doc.get('chunk_index',0))} | Score: {doc.get('score')}\n{doc.get('text')}"
         for doc in reranked_docs
     ) if reranked_docs else "No reranked docs."
 
