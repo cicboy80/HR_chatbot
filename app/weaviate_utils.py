@@ -2,8 +2,9 @@ import time
 import weaviate
 from weaviate.auth import AuthApiKey
 from weaviate.classes.init import AdditionalConfig, Timeout
-from weaviate.classes.config import Configure, DataType
+from weaviate.classes.config import Configure, DataType, Property, VectorDistances
 from weaviate.classes.data import DataObject
+from weaviate.classes.query import MetadataQuery
 
 from app.llm_utils import embed_texts, embed_text, expand_query
 
@@ -40,13 +41,14 @@ def ensure_schema(client):
 
     client.collections.create(
         name=COLLECTION,
-        vectorizer_config=Configure.Vectorizer.none(),
-        vector_index_config=Configure.VectorIndex.hnsw(
-            distance_metric="cosine"
+        vector_config=Configure.Vectors.self_provided(
+            vector_index_config=Configure.VectorIndex.hnsw(
+                distance_metric=VectorDistances.COSINE
+            )
         ),
         properties=[
-            {"name": "text", "data_type": DataType.TEXT},
-            {"name": "page", "data_type": DataType.INT},
+            Property(name="text", data_type=DataType.TEXT),
+            Property(name="page", data_type=DataType.INT),
         ],
     )
 
@@ -78,7 +80,7 @@ def insert_chunks(
         for j, (chunk, vec) in enumerate(zip(batch, vectors)):
             objects.append(
                 DataObject(
-                    properties={"text": chunk, "page": i + j},
+                    properties={"text": chunk, "chunk_index": i + j},
                     vector=vec,
                 )
             )
@@ -119,6 +121,7 @@ def search_weaviate(client, query: str, k: int = 12):
         alpha=0.3,
         limit=k,
         return_properties=["text", "page"],
+        return_metadata=MetadataQuery(distance=True)
     )
 
     if not res.objects:
