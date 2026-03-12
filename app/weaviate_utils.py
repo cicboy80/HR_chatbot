@@ -106,7 +106,7 @@ def insert_chunks(
     print(f"✅ Inserted {total} chunks into Weaviate")
 
 
-def search_weaviate(client, query: str, k: int = 12):
+def search_weaviate(client, query: str, k: int = 20):
     col = client.collections.get(COLLECTION)
 
     expanded_query = expand_query(query)
@@ -115,7 +115,7 @@ def search_weaviate(client, query: str, k: int = 12):
     res = col.query.hybrid(
         query=expanded_query,
         vector=query_vec,
-        alpha=0.3,
+        alpha=0.65,
         limit=k,
         return_properties=["text", "chunk_index"],
         return_metadata=MetadataQuery(score=True),

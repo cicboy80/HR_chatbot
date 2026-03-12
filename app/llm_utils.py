@@ -72,7 +72,7 @@ def rerank_chunks_with_llm(query: str, chunks: List[Dict[str, Any]]) -> List[Dic
     """
     Rerank retrieved chunks using GPT reasoning.
     `chunks` is a list of dicts:
-    [{"text": "...", "chunk_index": 1, "distance": 0.12}, ...]
+    [{"text": "...", "chunk_index": 1, "score": 0.12}, ...]
     Returns the same dicts ordered by relevance.
     """
     if not chunks:
@@ -83,9 +83,9 @@ def rerank_chunks_with_llm(query: str, chunks: List[Dict[str, Any]]) -> List[Dic
     for i, chunk in enumerate(chunks):
         clean_text = chunk.get("text", "")[:400].strip().replace("\n", " ")
         chunk_index = chunk.get("chunk_index")
-        distance = chunk.get("distance")
+        score = chunk.get("score")
         chunk_list_parts.append(
-            f"[{i+1}] (chunk={chunk_index}, distance={distance}) {clean_text}..."
+            f"[{i+1}] (chunk={chunk_index}, score={score}) {clean_text}..."
         )
     chunk_list = "\n\n".join(chunk_list_parts)
 
