@@ -76,12 +76,15 @@ async def upload_pdf(file: UploadFile):
             raise HTTPException(status_code=400, detail="PDF produced 0 chunks after processing.")
 
         # NO MORE SCHEMA WIPE PER UPLOAD
-        insert_chunks(client, chunks)
+        result = insert_chunks(client, chunks, safe_name)
 
         return {
             "status": "success",
             "message": f"✅ PDF '{safe_name}' processed successfully.",
             "chunks": len(chunks),
+            "inserted": result["inserted"],
+            "skipped_existing": result["skipped_existing"],
+            "unique_in_upload": result["unique_in_upload"],
         }
 
     except HTTPException:
@@ -99,12 +102,12 @@ async def ask_question(query: str = Form(...)):
         if not client:
             raise HTTPException(status_code=503, detail="Weaviate is not connected")
 
-        retrieved = search_weaviate(client, query, k=12)
+        retrieved = search_weaviate(client, query, k=20)
         if not retrieved:
             return {
                 "answer": "I couldn't find anything relevant in the uploaded handbook. Try uploading the PDF again or rephrasing your question.",
                 "retrieved_docs": [],
-                "reranked_docs": []
+                "reranked_docs": [],
             }
         reranked = rerank_chunks_with_llm(query, retrieved)
         top_docs = reranked[:4]
@@ -191,12 +194,12 @@ def ask_question_ui(question):
     reranked_docs = data.get("reranked_docs", [])
 
     retrieved_text = "\n\n---\n\n".join(
-        f"Chunk: {int(doc.get('chunk_index', 0))} | Score: {doc.get('score')}\n{doc.get('text')}"
+        f"Chunk: {int(doc.get('chunk_index') or 0)} | Score: {doc.get('score')}\n{doc.get('text')}"
         for doc in retrieved_docs
     ) if retrieved_docs else "No retrieved docs."
 
     reranked_text = "\n\n---\n\n".join(
-        f"Chunk: {int(doc.get('chunk_index',0))} | Score: {doc.get('score')}\n{doc.get('text')}"
+        f"Chunk: {int(doc.get('chunk_index') or 0)} | Score: {doc.get('score')}\n{doc.get('text')}"
         for doc in reranked_docs
     ) if reranked_docs else "No reranked docs."
 
