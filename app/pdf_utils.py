@@ -24,7 +24,14 @@ def extract_text_from_pdf(pdf_path: str, max_pages: int | None = None) -> str:
 
     text_chunks = []
 
-    with pdfplumber.open(pdf_path) as pdf:
+    try:
+        pdf_file = pdfplumber.open(pdf_path)
+    except Exception as e:
+        raise ValueError(
+            "Could not read this PDF (it may be corrupt or password-protected)."
+        ) from e
+
+    with pdf_file as pdf:
         if max_pages is not None and len(pdf.pages) > max_pages:
             raise ValueError(
                 f"PDF has {len(pdf.pages)} pages; the maximum allowed is {max_pages}."

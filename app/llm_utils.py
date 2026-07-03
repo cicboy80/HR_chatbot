@@ -3,7 +3,8 @@ from openai import OpenAI
 import re
 from typing import List, Dict, Any
 
-client = OpenAI()
+# SDK default timeout is 600s — a hung call would pin a worker for 10 minutes
+client = OpenAI(timeout=60, max_retries=2)
 
 EMBED_MODEL = "text-embedding-3-small"
 QUERY_EXPAND_MODEL = "gpt-4.1-mini"

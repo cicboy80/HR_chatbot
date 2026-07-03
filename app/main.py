@@ -5,8 +5,9 @@ import os
 import logging
 import requests
 import gradio as gr
-import atexit
 import re
+from contextlib import asynccontextmanager
+from fastapi.concurrency import run_in_threadpool
 from uuid import uuid4
 from dotenv import load_dotenv
 from pathlib import Path
@@ -37,10 +38,6 @@ ASK_RATE_LIMIT = os.getenv("ASK_RATE_LIMIT", "20/hour")
 
 limiter = Limiter(key_func=client_ip)
 
-app = FastAPI(title="HR Q&A Bot")
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 # ENV + CONNECTION
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 WEAVIATE_URL = os.getenv("WEAVIATE_URL")
@@ -53,13 +50,32 @@ if not OPENAI_API_KEY:
 if not WEAVIATE_API_KEY:
     raise ValueError("❌ Missing WEAVIATE_API_KEY in environment variables.")
 
-try:
-    client = connect(WEAVIATE_URL, WEAVIATE_API_KEY)
-    print("✅ Connected to Weaviate")
-    ensure_schema(client)   # create collection
-except Exception as e:
-    print(f"❌ Failed to connect to Weaviate: {e}")
-    client = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.weaviate = None
+    try:
+        app.state.weaviate = connect(WEAVIATE_URL, WEAVIATE_API_KEY)
+        ensure_schema(app.state.weaviate)   # create collection once
+        logger.info("Connected to Weaviate")
+    except Exception:
+        logger.exception("Failed to connect to Weaviate")
+    yield
+    if app.state.weaviate:
+        app.state.weaviate.close()
+        logger.info("Weaviate connection closed")
+
+
+app = FastAPI(title="HR Q&A Bot", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+def get_weaviate(request: Request):
+    wv = getattr(request.app.state, "weaviate", None)
+    if not wv:
+        raise HTTPException(status_code=503, detail="Weaviate is not connected")
+    return wv
 
 # UPLOAD DIRECTORY
 UPLOAD_DIR = Path("/home/uploads") if os.getenv("WEBSITE_SITE_NAME") else Path("uploads")
@@ -95,77 +111,86 @@ async def save_upload(file: UploadFile, save_path: Path) -> None:
         raise
 
 
+def index_pdf(save_path: Path, safe_name: str, wv) -> dict:
+    """Extract, chunk, and insert a saved PDF (blocking; run in a threadpool)."""
+    try:
+        text = extract_text_from_pdf(save_path, max_pages=MAX_PDF_PAGES)
+    except ValueError as err:
+        # pdf_utils uses ValueError for "no extractable text" / too many pages
+        raise HTTPException(status_code=400, detail=str(err))
+
+    if not text or not text.strip():
+        raise HTTPException(status_code=400, detail="No extractable text found in this PDF.")
+
+    chunks = chunk_text(text)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="PDF produced 0 chunks after processing.")
+
+    truncated = len(chunks) > MAX_CHUNKS_PER_UPLOAD
+    chunks = chunks[:MAX_CHUNKS_PER_UPLOAD]
+
+    # NO MORE SCHEMA WIPE PER UPLOAD
+    result = insert_chunks(wv, chunks, safe_name)
+
+    message = f"✅ PDF '{safe_name}' processed successfully."
+    if truncated:
+        message += f" (Indexed the first {MAX_CHUNKS_PER_UPLOAD} sections only.)"
+
+    return {
+        "status": "success",
+        "message": message,
+        "chunks": len(chunks),
+        "inserted": result["inserted"],
+        "skipped_existing": result["skipped_existing"],
+        "unique_in_upload": result["unique_in_upload"],
+    }
+
+
 # API ENDPOINTS
 @app.post("/upload_pdf")
 @limiter.limit(UPLOAD_RATE_LIMIT)
 async def upload_pdf(request: Request, file: UploadFile):
     """Upload and index a PDF file in Weaviate"""
+    wv = get_weaviate(request)
+
+    if file is None:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    safe_name = Path(file.filename or "").name
+    if (
+        not safe_name
+        or safe_name.startswith(".")
+        or not safe_name.lower().endswith(".pdf")
+    ):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    save_path = UPLOAD_DIR / f"{uuid4().hex[:8]}-{safe_name}"
+    await save_upload(file, save_path)
+
     try:
-        if not client:
-            raise HTTPException(status_code=503, detail="Weaviate is not connected")
-
-        if file is None:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-
-        safe_name = Path(file.filename or "").name
-        if (
-            not safe_name
-            or safe_name.startswith(".")
-            or not safe_name.lower().endswith(".pdf")
-        ):
-            raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
-
-        save_path = UPLOAD_DIR / f"{uuid4().hex[:8]}-{safe_name}"
-        await save_upload(file, save_path)
-
-        try:
-            text = extract_text_from_pdf(save_path, max_pages=MAX_PDF_PAGES)
-        except ValueError as err:
-            # pdf_utils uses ValueError for "no extractable text" / too many pages
-            raise HTTPException(status_code=400, detail=str(err))
-
-        if not text or not text.strip():
-            raise HTTPException(status_code=400, detail="No extractable text found in this PDF.")
-
-        chunks = chunk_text(text)
-        if not chunks:
-            raise HTTPException(status_code=400, detail="PDF produced 0 chunks after processing.")
-
-        truncated = len(chunks) > MAX_CHUNKS_PER_UPLOAD
-        chunks = chunks[:MAX_CHUNKS_PER_UPLOAD]
-
-        # NO MORE SCHEMA WIPE PER UPLOAD
-        result = insert_chunks(client, chunks, safe_name)
-
-        message = f"✅ PDF '{safe_name}' processed successfully."
-        if truncated:
-            message += f" (Indexed the first {MAX_CHUNKS_PER_UPLOAD} sections only.)"
-
-        return {
-            "status": "success",
-            "message": message,
-            "chunks": len(chunks),
-            "inserted": result["inserted"],
-            "skipped_existing": result["skipped_existing"],
-            "unique_in_upload": result["unique_in_upload"],
-        }
-
+        return await run_in_threadpool(index_pdf, save_path, safe_name, wv)
     except HTTPException:
         raise
     except Exception:
         logger.exception("Upload failed")
         raise HTTPException(status_code=500, detail="Internal error while processing the PDF.")
+    finally:
+        # the PDF is only needed during ingestion; don't accumulate uploads
+        save_path.unlink(missing_ok=True)
 
 
 @app.post("/ask_question")
 @limiter.limit(ASK_RATE_LIMIT)
-async def ask_question(request: Request, query: str = Form(...)):
-    """Answer a user question using retrieved PDF context."""
-    try:
-        if not client:
-            raise HTTPException(status_code=503, detail="Weaviate is not connected")
+def ask_question(request: Request, query: str = Form(...)):
+    """Answer a user question using retrieved PDF context.
 
-        retrieved = search_weaviate(client, query, k=20)
+    Plain `def` on purpose: FastAPI runs it in the threadpool, so the
+    blocking OpenAI/Weaviate calls don't stall the event loop.
+    """
+    try:
+        wv = get_weaviate(request)
+
+        retrieved = search_weaviate(wv, query, k=20)
         if not retrieved:
             return {
                 "answer": "I couldn't find anything relevant in the uploaded handbook. Try uploading the PDF again or rephrasing your question.",
@@ -334,14 +359,14 @@ def root():
 # Mount Gradio into FastAPI
 gr.mount_gradio_app(app, gradio_app, path="/ui")
 
-# HEALTH + CLEANUP
+# HEALTH
 @app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@atexit.register
-def close_weaviate():
-    if client:
-        client.close()
-        print("🔒 Weaviate connection closed.")
+def health(request: Request):
+    wv = getattr(request.app.state, "weaviate", None)
+    connected = False
+    if wv:
+        try:
+            connected = wv.is_ready()
+        except Exception:
+            connected = False
+    return {"status": "ok", "weaviate": "connected" if connected else "disconnected"}
