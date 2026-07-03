@@ -14,7 +14,7 @@ def clean_extracted_text(text: str) -> str:
     return text.strip()
 
 
-def extract_text_from_pdf(pdf_path: str) -> str:
+def extract_text_from_pdf(pdf_path: str, max_pages: int | None = None) -> str:
     """Extract text from all pages using pdfplumber."""
     if not pdf_path:
         raise ValueError("No PDF file path provided")
@@ -25,6 +25,10 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     text_chunks = []
 
     with pdfplumber.open(pdf_path) as pdf:
+        if max_pages is not None and len(pdf.pages) > max_pages:
+            raise ValueError(
+                f"PDF has {len(pdf.pages)} pages; the maximum allowed is {max_pages}."
+            )
         for page in pdf.pages:
             page_text = page.extract_text()
             if page_text:

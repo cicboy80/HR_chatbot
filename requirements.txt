@@ -1,9 +1,10 @@
 fastapi
 uvicorn[standard]
-weaviate-client
 openai
 python-dotenv
 pdfplumber
 python-multipart
 gradio
 requests
+slowapi
+weaviate-client>=4.16.0
