@@ -41,3 +41,5 @@ current_config.json
 --name
 --resource-groupuploads/
 uploads/
+
+.pytest_cache/
