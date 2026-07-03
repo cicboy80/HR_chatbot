@@ -1,7 +1,10 @@
 # Import relevant libraries and modules
 from openai import OpenAI
+import logging
 import re
 from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 # SDK default timeout is 600s — a hung call would pin a worker for 10 minutes
 client = OpenAI(timeout=60, max_retries=2)
@@ -63,7 +66,7 @@ Expanded:
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print("⚠️ Query expansion failed:", e)
+        logger.warning("Query expansion failed: %s", e)
         return query
 
 
@@ -113,7 +116,7 @@ Example: 3, 1, 2
             temperature=0
         )
         text_output = response.choices[0].message.content.strip()
-        print(f"🔎 Reranker raw output: {text_output}")
+        logger.debug("Reranker raw output: %s", text_output)
 
         # Extract numbers safely
         order = [int(x) for x in re.findall(r"\d+", text_output)]
@@ -129,6 +132,6 @@ Example: 3, 1, 2
         return reranked + remaining
 
     except Exception as e:
-        print("⚠️ Rerank failed:", e)
+        logger.warning("Rerank failed: %s", e)
         # Fallback: return original order
         return chunks

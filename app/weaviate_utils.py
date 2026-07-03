@@ -1,5 +1,6 @@
 import time
 import hashlib
+import logging
 import weaviate
 from weaviate.auth import AuthApiKey
 from weaviate.classes.init import AdditionalConfig, Timeout
@@ -8,6 +9,8 @@ from weaviate.classes.data import DataObject
 from weaviate.classes.query import MetadataQuery, Filter
 
 from app.llm_utils import embed_texts, embed_text, expand_query
+
+logger = logging.getLogger(__name__)
 
 COLLECTION = "PDFDocument"
 
@@ -33,11 +36,11 @@ def ensure_schema(client):
     BYO vectors (we supply vectors explicitly at insert time).
     """
     if client.collections.exists(COLLECTION):
-        print(f"ℹ️ Weaviate collection '{COLLECTION}' exists")
+        logger.info("Weaviate collection '%s' exists", COLLECTION)
         return
 
     dims = len(embed_text("dimension check"))
-    print(f"🧭 Embedding dims (sanity check only): {dims}")
+    logger.info("Embedding dims (sanity check only): %d", dims)
 
     client.collections.create(
         name=COLLECTION,
@@ -54,7 +57,7 @@ def ensure_schema(client):
         ],
     )
 
-    print(f"✅ Created '{COLLECTION}' (BYO vectors, cosine)")
+    logger.info("Created '%s' (BYO vectors, cosine)", COLLECTION)
 
 def chunk_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -102,7 +105,7 @@ def insert_chunks(
     skipped_existing = len(unique_chunks) - len(chunks_to_insert)
 
     if not chunks_to_insert:
-        print("ℹ️ No new chunks to insert; all chunks already exist")
+        logger.info("No new chunks to insert; all chunks already exist")
         return {
             "inserted": 0,
             "skipped_existing": skipped_existing,
@@ -148,14 +151,14 @@ def insert_chunks(
                 if attempt == max_retries:
                     raise
                 backoff = 2 ** (attempt - 1)
-                print(
-                    f"⚠️ Insert batch failed "
-                    f"(attempt {attempt}/{max_retries}): {e} — retrying in {backoff}s"
+                logger.warning(
+                    "Insert batch failed (attempt %d/%d): %s — retrying in %ds",
+                    attempt, max_retries, e, backoff,
                 )
                 time.sleep(backoff)
 
-    print(f"✅ Inserted {total} new chunks into Weaviate")
-    print(f"ℹ️ Skipped {skipped_existing} chunks already present in Weaviate")
+    logger.info("Inserted %d new chunks into Weaviate", total)
+    logger.info("Skipped %d chunks already present in Weaviate", skipped_existing)
 
     return {
         "inserted": total,

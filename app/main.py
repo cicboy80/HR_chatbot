@@ -79,7 +79,12 @@ def get_weaviate(request: Request):
 
 # UPLOAD DIRECTORY
 UPLOAD_DIR = Path("/home/uploads") if os.getenv("WEBSITE_SITE_NAME") else Path("uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    # e.g. /home not writable for the container user — fall back to a local dir
+    UPLOAD_DIR = Path("uploads")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # UPLOAD LIMITS (bound the worst-case cost of a single upload)
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))

@@ -5,11 +5,12 @@ Production-oriented Retrieval-Augmented Generation (RAG) service for querying HR
 ## Features
 
 - PDF text extraction and semantic chunking
-- Embedding generation using **OpenAI `text-embedding-3-large`**
+- Embedding generation using **OpenAI `text-embedding-3-small`**
 - Vector storage and retrieval via **Weaviate Cloud**
-- Query expansion and passage re-ranking using **GPT-4.1-mini**
+- Query expansion (**GPT-4.1-mini**) and passage re-ranking (**GPT-4o-mini**)
 - Context-grounded answer generation with source-aware prompts
-- Containerised deployment using **Docker**
+- Per-IP rate limiting and upload size/page caps to bound API spend
+- Containerised deployment using **Docker** (non-root container user)
 - Cloud deployment on **Azure Container Apps**
   
 __
@@ -41,18 +42,20 @@ git clone https://github.com/cicboy/hr-qa-bot.git
 cd HR_chatbot
 ```
 
-### 2.Create an Environment File
+### 2. Create an Environment File
 
-Create a `.env` file (do not commit):
+Copy the example file and fill in your real keys (`api_keys.env` is gitignored — never commit it):
 
-OPENAI_API_KEY=sk-your-openai-key
-WEAVIATE_URL=https://your-cluster.weaviate.network
-WEAVIATE_API_KEY=your-weaviate-api-key
+```bash
+cp api_keys.env.example api_keys.env
+```
 
 ### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
+
+For running the tests: `pip install -r requirements-dev.txt`, then `pytest`.
 
 ### 4. Run Locally
 ```bash
@@ -66,7 +69,7 @@ http://localhost:8000/docs
 
 ### 1. Build the image
 ```bash
-docker build -t hr-qa-bot
+docker build -t hr-qa-bot .
 ```
 
 ### 2. Run the Container
@@ -96,6 +99,30 @@ az containerapp create \
 ```
 Once deployed, your FastAPI endpoints will be live at:
 https://hr-qa-bot.<region>.azurecontainerapps.io
+
+## Configuration
+
+All settings come from environment variables (loaded from `api_keys.env` locally):
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | yes | — | OpenAI API key |
+| `WEAVIATE_URL` | yes | — | Weaviate Cloud cluster URL |
+| `WEAVIATE_API_KEY` | yes | — | Weaviate API key |
+| `UPLOAD_RATE_LIMIT` | no | `3/day` | Per-IP limit on PDF uploads |
+| `ASK_RATE_LIMIT` | no | `20/hour` | Per-IP limit on questions |
+| `MAX_UPLOAD_MB` | no | `25` | Max PDF file size |
+| `MAX_PDF_PAGES` | no | `100` | Max pages per PDF |
+| `MAX_CHUNKS_PER_UPLOAD` | no | `500` | Max chunks embedded per upload |
+| `API_URL` | no | `http://127.0.0.1:8000` | Base URL the Gradio UI uses to reach the API |
+
+## Cost Protection
+
+The app is public (no login), so spend is bounded in layers:
+
+1. **Per-IP rate limits** on `/upload_pdf` and `/ask_question` (see table above). Behind Azure's front end the real client IP is taken from `X-Forwarded-For`.
+2. **Upload caps** — file size, page count, and chunks-embedded-per-upload are all limited.
+3. **OpenAI hard budget cap (do this!)** — in the [OpenAI dashboard](https://platform.openai.com/settings/organization/limits), set a monthly budget limit. This is the one protection that cannot be bypassed: the API stops serving once the cap is hit.
 
 ## Example Flow
 
