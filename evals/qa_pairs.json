@@ -1,0 +1,50 @@
+[
+  {
+    "question": "What do I need to provide if I am on sick leave?",
+    "expected_phrases": ["note from their doctor", "medical certificate"]
+  },
+  {
+    "question": "What happens if I don't provide a medical certificate for my sick leave?",
+    "expected_phrases": ["deducted from banked hours", "will not be registered as sick leave"]
+  },
+  {
+    "question": "When do staff meetings take place?",
+    "expected_phrases": ["every Wednesday", "Staff meetings are mandatory"]
+  },
+  {
+    "question": "What time do lessons start and finish?",
+    "expected_phrases": ["Lessons start at 08:30", "15:30"]
+  },
+  {
+    "question": "How many members of staff are on duty at lunchtime?",
+    "expected_phrases": ["three members of staff"]
+  },
+  {
+    "question": "What should a student do if they arrive late to school?",
+    "expected_phrases": ["reception desk"]
+  },
+  {
+    "question": "What is the rule about students' mobile phones?",
+    "expected_phrases": ["Hand in their phone during form time", "study periods"]
+  },
+  {
+    "question": "How much homework should MYP4 students receive?",
+    "expected_phrases": ["60 minutes per subject per week"]
+  },
+  {
+    "question": "What types of detention are there?",
+    "expected_phrases": ["internal detention", "after school detention"]
+  },
+  {
+    "question": "How should teachers provide cover work when they are absent?",
+    "expected_phrases": ["Manage Bac", "beginning of the day"]
+  },
+  {
+    "question": "How do teachers print documents at school?",
+    "expected_phrases": ["school badge", "save_that_tree"]
+  },
+  {
+    "question": "What time is morning duty and what does it involve?",
+    "expected_phrases": ["8:00-8:25", "monitor the hallways"]
+  }
+]
