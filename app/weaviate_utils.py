@@ -42,7 +42,7 @@ def ensure_schema(client):
     client.collections.create(
         name=COLLECTION,
         vector_config=Configure.Vectors.self_provided(
-            vector_index_config=Configure.VectorIndex.hnsw(
+            vector_index_config=Configure.VectorIndex.hfresh(
                 distance_metric=VectorDistances.COSINE
             )
         ),
@@ -59,14 +59,19 @@ def ensure_schema(client):
 def chunk_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-
-def content_hash_exists(col, content_hash: str) -> bool:
-    res = col.query.fetch_objects(
-        filters=Filter.by_property("content_hash").equal(content_hash),
-        limit=1,
-        return_properties=["content_hash"],
-    )
-    return bool(res.objects)
+def fetch_existing_hashes(col, hashes: list[str], batch_size: int = 100) -> set[str]:
+    """Return the subset of `hashes` already stored, using batched queries
+    instead of one round-trip per hash."""
+    existing: set[str] = set()
+    for i in range(0, len(hashes), batch_size):
+        batch = hashes[i:i + batch_size]
+        res = col.query.fetch_objects(
+            filters=Filter.by_property("content_hash").contains_any(batch),
+            limit=len(batch),
+            return_properties=["content_hash"],
+        )
+        existing.update(o.properties["content_hash"] for o in res.objects)
+    return existing
 
 def insert_chunks(
     client,
@@ -91,15 +96,10 @@ def insert_chunks(
         seen_hashes.add(content_hash)
         unique_chunks.append((i, chunk, content_hash))
 
-    # 2) dedupe against existing DB contents
-    chunks_to_insert = []
-    skipped_existing = 0
-
-    for i, chunk, content_hash in unique_chunks:
-        if content_hash_exists(col, content_hash):
-            skipped_existing += 1
-            continue
-        chunks_to_insert.append((i, chunk, content_hash))
+    # 2) dedupe against existing DB contents (one batched query, not per-chunk)
+    existing = fetch_existing_hashes(col, [h for _, _, h in unique_chunks])
+    chunks_to_insert = [t for t in unique_chunks if t[2] not in existing]
+    skipped_existing = len(unique_chunks) - len(chunks_to_insert)
 
     if not chunks_to_insert:
         print("ℹ️ No new chunks to insert; all chunks already exist")
